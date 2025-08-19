@@ -17,13 +17,13 @@ interface Investigator {
   email: string
   institution: string
   specialization: string
-  bio: string
-  orcid: string
+  biography?: string  // Cambiar 'bio' por 'biography' y hacerlo opcional
+  orcid?: string      // Hacerlo opcional
   documentType: string
   documentNumber: string
   role: string
   status: string
-  createdAt: string
+  registrationDate: string  // Cambiar 'createdAt' por 'registrationDate'
 }
 
 export default function InvestigatorsPage() {

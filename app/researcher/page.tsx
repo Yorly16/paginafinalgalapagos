@@ -267,11 +267,13 @@ function ResearcherPageContent() {
         </div>
       </div>
 
-      <PermissionRequestModal
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        permissionId={selectedPermission}
-      />
+      {selectedPermission && (
+        <PermissionRequestModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          permissionId={selectedPermission}
+        />
+      )}
 
       {/* Dialog para funciones */}
       <Dialog open={functionDialogOpen} onOpenChange={setFunctionDialogOpen}>

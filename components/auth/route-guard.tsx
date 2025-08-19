@@ -24,7 +24,7 @@ export function RouteGuard({
   useEffect(() => {
     const checkAuth = () => {
       // Verificar si hay usuario autenticado
-      if (!currentUser || !currentUser.isAuthenticated) {
+      if (!currentUser) {
         router.push(redirectTo)
         return
       }

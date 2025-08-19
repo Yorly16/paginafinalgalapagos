@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import 'leaflet/dist/leaflet.css'
 
 interface IslandData {
   name: string
@@ -72,7 +73,6 @@ export default function LeafletMap() {
     const initMap = async () => {
       // Importación dinámica de Leaflet
       const L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
       
       // Fix para los iconos de Leaflet en Next.js
       delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -171,8 +171,8 @@ export default function LeafletMap() {
         })
 
         // Agregar evento hover
-        marker.on('mouseover', function() {
-          this.openPopup()
+        marker.on('mouseover', () => {
+          marker.openPopup()
         })
       })
 
