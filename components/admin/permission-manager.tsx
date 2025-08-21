@@ -8,27 +8,36 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { PermissionRequest, getPermissionById } from "@/lib/permissions"
-import { Clock, Check, X, User } from "lucide-react"
+import { Clock, Check, X, User, Wifi, WifiOff, CheckCircle, AlertCircle } from "lucide-react"
+import { useGitHubData } from "@/hooks/use-github-data"
 
 export function PermissionManager() {
-  const [requests, setRequests] = useState<PermissionRequest[]>([])
   const [selectedRequest, setSelectedRequest] = useState<PermissionRequest | null>(null)
   const [reviewComment, setReviewComment] = useState('')
+  const [processingRequests, setProcessingRequests] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    loadRequests()
-  }, [])
+  // Usar el hook para gestionar solicitudes de permisos
+  const {
+    data: requests,
+    loading: requestsLoading,
+    error: requestsError,
+    syncStatus: requestsSyncStatus,
+    updateData: updateRequests,
+    refetch: refetchRequests
+  } = useGitHubData<PermissionRequest[]>('permissions', [])
 
-  const loadRequests = () => {
-    try {
-      const storedRequests = JSON.parse(localStorage.getItem('permission-requests') || '[]')
-      setRequests(storedRequests)
-    } catch (error) {
-      console.error('Error loading requests:', error)
-    }
-  }
+  // Usar el hook para gestionar usuarios
+  const {
+    data: users,
+    updateData: updateUsers,
+    refetch: refetchUsers
+  } = useGitHubData<any[]>('users', [])
 
   const handleApprove = async (request: PermissionRequest) => {
+    if (processingRequests.has(request.id)) return
+    
+    setProcessingRequests(prev => new Set([...prev, request.id]))
+    
     try {
       // Actualizar solicitud
       const updatedRequests = requests.map(r => 
@@ -42,10 +51,9 @@ export function PermissionManager() {
           : r
       )
       
-      localStorage.setItem('permission-requests', JSON.stringify(updatedRequests))
+      await updateRequests(updatedRequests)
       
-      // Actualizar permisos del usuario en la lista de usuarios registrados
-      const users = JSON.parse(localStorage.getItem('users') || '[]')
+      // Actualizar permisos del usuario
       const permission = getPermissionById(request.permissionId)
       
       if (permission) {
@@ -63,7 +71,7 @@ export function PermissionManager() {
           return user
         })
         
-        localStorage.setItem('users', JSON.stringify(updatedUsers))
+        await updateUsers(updatedUsers)
         
         // También actualizar el usuario actual si está logueado
         const currentUser = JSON.parse(localStorage.getItem('current-user') || '{}')
@@ -79,14 +87,24 @@ export function PermissionManager() {
         }
       }
       
-      setRequests(updatedRequests)
       toast.success('Solicitud aprobada correctamente')
     } catch (error) {
+      console.error('Error al aprobar solicitud:', error)
       toast.error('Error al aprobar la solicitud')
+    } finally {
+      setProcessingRequests(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(request.id)
+        return newSet
+      })
     }
   }
 
   const handleDeny = async (request: PermissionRequest) => {
+    if (processingRequests.has(request.id)) return
+    
+    setProcessingRequests(prev => new Set([...prev, request.id]))
+    
     try {
       const updatedRequests = requests.map(r => 
         r.id === request.id 
@@ -99,25 +117,118 @@ export function PermissionManager() {
           : r
       )
       
-      localStorage.setItem('permission-requests', JSON.stringify(updatedRequests))
-      setRequests(updatedRequests)
+      await updateRequests(updatedRequests)
       toast.success('Solicitud denegada')
     } catch (error) {
+      console.error('Error al denegar solicitud:', error)
       toast.error('Error al denegar la solicitud')
+    } finally {
+      setProcessingRequests(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(request.id)
+        return newSet
+      })
+    }
+  }
+
+  const getSyncStatusIcon = () => {
+    switch (requestsSyncStatus) {
+      case 'synced':
+        return <CheckCircle className="h-4 w-4 text-green-500" />
+      case 'syncing':
+        return <Clock className="h-4 w-4 text-blue-500 animate-spin" />
+      case 'offline':
+        return <WifiOff className="h-4 w-4 text-gray-500" />
+      case 'error':
+        return <AlertCircle className="h-4 w-4 text-red-500" />
+      default:
+        return <Wifi className="h-4 w-4 text-gray-400" />
+    }
+  }
+
+  const getSyncStatusText = () => {
+    switch (requestsSyncStatus) {
+      case 'synced':
+        return 'Sincronizado'
+      case 'syncing':
+        return 'Sincronizando...'
+      case 'offline':
+        return 'Sin conexión'
+      case 'error':
+        return 'Error de sincronización'
+      default:
+        return 'Conectando...'
     }
   }
 
   const pendingRequests = requests.filter(r => r.status === 'pending')
   const reviewedRequests = requests.filter(r => r.status !== 'pending')
 
+  if (requestsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold mb-2">Gestión de Permisos</h2>
+            <p className="text-muted-foreground">
+              Revisa y gestiona las solicitudes de permisos de los investigadores.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 animate-spin" />
+            Cargando...
+          </div>
+        </div>
+        <div className="grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <div className="animate-pulse space-y-3">
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                  <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold mb-2">Gestión de Permisos</h2>
-        <p className="text-muted-foreground">
-          Revisa y gestiona las solicitudes de permisos de los investigadores.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold mb-2">Gestión de Permisos</h2>
+          <p className="text-muted-foreground">
+            Revisa y gestiona las solicitudes de permisos de los investigadores.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {getSyncStatusIcon()}
+          {getSyncStatusText()}
+        </div>
       </div>
+
+      {requestsError && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-red-700">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Error al cargar solicitudes: {requestsError}</span>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => refetchRequests()}
+                className="ml-auto"
+              >
+                Reintentar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Solicitudes Pendientes */}
       <Card>
@@ -136,6 +247,8 @@ export function PermissionManager() {
             <div className="space-y-4">
               {pendingRequests.map((request) => {
                 const permission = getPermissionById(request.permissionId)
+                const isProcessing = processingRequests.has(request.id)
+                
                 return (
                   <div key={request.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex justify-between items-start">
@@ -160,19 +273,29 @@ export function PermissionManager() {
                       <Button 
                         size="sm" 
                         onClick={() => handleApprove(request)}
+                        disabled={isProcessing}
                         className="flex items-center gap-1"
                       >
-                        <Check className="h-4 w-4" />
-                        Aprobar
+                        {isProcessing ? (
+                          <Clock className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                        {isProcessing ? 'Procesando...' : 'Aprobar'}
                       </Button>
                       <Button 
                         size="sm" 
                         variant="destructive"
                         onClick={() => handleDeny(request)}
+                        disabled={isProcessing}
                         className="flex items-center gap-1"
                       >
-                        <X className="h-4 w-4" />
-                        Denegar
+                        {isProcessing ? (
+                          <Clock className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4" />
+                        )}
+                        {isProcessing ? 'Procesando...' : 'Denegar'}
                       </Button>
                     </div>
                   </div>

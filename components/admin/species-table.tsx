@@ -12,9 +12,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Edit, Trash2, Eye, MoreHorizontal, ChevronLeft, ChevronRight, Save, Search } from "lucide-react"
+import { Edit, Trash2, Eye, MoreHorizontal, ChevronLeft, ChevronRight, Save, Search, Wifi, WifiOff, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { toast } from "@/hooks/use-toast"
+import { useGitHubData } from "@/hooks/use-github-data"
 
 interface Species {
   id: string
@@ -59,11 +60,43 @@ const getCategoryColor = (category: string) => {
   }
 }
 
+const getSyncStatusIcon = (status: string) => {
+  switch (status) {
+    case 'synced': return <CheckCircle className="h-4 w-4 text-green-600" />
+    case 'syncing': return <Clock className="h-4 w-4 text-blue-600 animate-spin" />
+    case 'offline': return <WifiOff className="h-4 w-4 text-gray-600" />
+    case 'error': return <AlertCircle className="h-4 w-4 text-red-600" />
+    default: return <Wifi className="h-4 w-4 text-gray-600" />
+  }
+}
+
+const getSyncStatusText = (status: string) => {
+  switch (status) {
+    case 'synced': return 'Sincronizado'
+    case 'syncing': return 'Sincronizando...'
+    case 'offline': return 'Sin conexión'
+    case 'error': return 'Error de sincronización'
+    default: return 'Desconocido'
+  }
+}
+
 export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(10)
   const [editingSpecies, setEditingSpecies] = useState<Species | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+
+  // Usar el hook de GitHub Data para especies
+  const {
+    data: githubSpecies,
+    updateItem,
+    deleteItem,
+    syncStatus,
+    error: syncError,
+    pendingChanges
+  } = useGitHubData<Species>('species')
 
   const totalPages = Math.ceil(species.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -75,21 +108,12 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!editingSpecies) return
+  const handleSaveEdit = async () => {
+    if (!editingSpecies || isUpdating) return
 
+    setIsUpdating(true)
     try {
-      // Obtener todas las especies del localStorage
-      const savedSpecies = localStorage.getItem('galapagos-species')
-      let allSpecies: Species[] = savedSpecies ? JSON.parse(savedSpecies) : []
-
-      // Actualizar la especie editada
-      const updatedSpecies = allSpecies.map(s => 
-        s.id === editingSpecies.id ? editingSpecies : s
-      )
-
-      // Guardar de vuelta al localStorage
-      localStorage.setItem('galapagos-species', JSON.stringify(updatedSpecies))
+      await updateItem(editingSpecies.id, editingSpecies)
       
       setIsEditDialogOpen(false)
       setEditingSpecies(null)
@@ -106,20 +130,17 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
         description: "No se pudo actualizar la especie. Inténtalo de nuevo.",
         variant: "destructive",
       })
+    } finally {
+      setIsUpdating(false)
     }
   }
 
-  const handleDelete = (id: string, commonName: string) => {
+  const handleDelete = async (id: string, commonName: string) => {
+    if (isDeleting) return
+
+    setIsDeleting(id)
     try {
-      // Obtener todas las especies del localStorage
-      const savedSpecies = localStorage.getItem('galapagos-species')
-      let allSpecies: Species[] = savedSpecies ? JSON.parse(savedSpecies) : []
-
-      // Filtrar para eliminar la especie
-      const updatedSpecies = allSpecies.filter(s => s.id !== id)
-
-      // Guardar de vuelta al localStorage
-      localStorage.setItem('galapagos-species', JSON.stringify(updatedSpecies))
+      await deleteItem(id)
       
       onSpeciesUpdate() // Notificar al componente padre para refrescar
       
@@ -134,6 +155,8 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
         description: "No se pudo eliminar la especie. Inténtalo de nuevo.",
         variant: "destructive",
       })
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -149,12 +172,40 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
   return (
     <>
       <div className="w-full h-full flex flex-col bg-white rounded-xl border border-gray-200">
-        {/* Header */}
+        {/* Header con estado de sincronización */}
         <div className="p-6 border-b border-gray-200">
-          <h3 className="text-xl font-semibold text-gray-900">Especies Encontradas</h3>
-          <p className="text-gray-600 mt-1">
-            {species.length} especies en tu catálogo local
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900">Especies Encontradas</h3>
+              <p className="text-gray-600 mt-1">
+                {species.length} especies en tu catálogo
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {getSyncStatusIcon(syncStatus)}
+              <span className="text-sm text-gray-600">
+                {getSyncStatusText(syncStatus)}
+              </span>
+            </div>
+          </div>
+          
+          {/* Mostrar cambios pendientes */}
+          {pendingChanges > 0 && (
+            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                📝 {pendingChanges} cambio{pendingChanges !== 1 ? 's' : ''} pendiente{pendingChanges !== 1 ? 's' : ''} de sincronizar
+              </p>
+            </div>
+          )}
+          
+          {/* Mostrar errores de sincronización */}
+          {syncError && (
+            <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-800">
+                ⚠️ Error de sincronización: {syncError}
+              </p>
+            </div>
+          )}
         </div>
         
         {/* Content */}
@@ -218,13 +269,22 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                               variant="outline"
                               size="sm"
                               onClick={() => handleEdit(species)}
+                              disabled={isUpdating}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Trash2 className="h-4 w-4" />
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  disabled={isDeleting === species.id}
+                                >
+                                  {isDeleting === species.id ? (
+                                    <Clock className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -240,8 +300,9 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                                   <AlertDialogAction
                                     onClick={() => handleDelete(species.id, species.commonName)}
                                     className="bg-red-600 hover:bg-red-700"
+                                    disabled={isDeleting === species.id}
                                   >
-                                    Eliminar
+                                    {isDeleting === species.id ? 'Eliminando...' : 'Eliminar'}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -309,6 +370,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                     id="commonName"
                     value={editingSpecies.commonName}
                     onChange={(e) => handleInputChange('commonName', e.target.value)}
+                    disabled={isUpdating}
                   />
                 </div>
                 <div>
@@ -317,6 +379,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                     id="scientificName"
                     value={editingSpecies.scientificName}
                     onChange={(e) => handleInputChange('scientificName', e.target.value)}
+                    disabled={isUpdating}
                   />
                 </div>
               </div>
@@ -327,6 +390,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   <Select
                     value={editingSpecies.category}
                     onValueChange={(value) => handleInputChange('category', value)}
+                    disabled={isUpdating}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -346,6 +410,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   <Select
                     value={editingSpecies.status}
                     onValueChange={(value) => handleInputChange('status', value)}
+                    disabled={isUpdating}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -367,6 +432,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   id="location"
                   value={editingSpecies.location}
                   onChange={(e) => handleInputChange('location', e.target.value)}
+                  disabled={isUpdating}
                 />
               </div>
               
@@ -377,6 +443,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   value={editingSpecies.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
                   rows={3}
+                  disabled={isUpdating}
                 />
               </div>
               
@@ -387,6 +454,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   value={editingSpecies.habitat}
                   onChange={(e) => handleInputChange('habitat', e.target.value)}
                   rows={2}
+                  disabled={isUpdating}
                 />
               </div>
               
@@ -397,6 +465,7 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   value={editingSpecies.diet}
                   onChange={(e) => handleInputChange('diet', e.target.value)}
                   rows={2}
+                  disabled={isUpdating}
                 />
               </div>
               
@@ -407,18 +476,35 @@ export function SpeciesTable({ species, onSpeciesUpdate }: SpeciesTableProps) {
                   value={editingSpecies.threats}
                   onChange={(e) => handleInputChange('threats', e.target.value)}
                   rows={2}
+                  disabled={isUpdating}
                 />
               </div>
             </div>
           )}
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsEditDialogOpen(false)}
+              disabled={isUpdating}
+            >
               Cancelar
             </Button>
-            <Button onClick={handleSaveEdit}>
-              <Save className="h-4 w-4 mr-2" />
-              Guardar Cambios
+            <Button 
+              onClick={handleSaveEdit}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <>
+                  <Clock className="h-4 w-4 mr-2 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Guardar Cambios
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,7 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Search, Filter, X, RefreshCw, Eye, Edit } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import { Search, Filter, X, RefreshCw, Eye, Edit, Save, Cloud, Wifi } from "lucide-react"
+import { useGitHubData } from "@/hooks/use-github-data"
+import { toast } from "@/hooks/use-toast"
 
 interface Species {
   id: string
@@ -35,109 +38,170 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
   const [selectedCategory, setSelectedCategory] = useState("")
   const [selectedStatus, setSelectedStatus] = useState("")
   const [selectedLocation, setSelectedLocation] = useState("")
-  const [allSpecies, setAllSpecies] = useState<Species[]>([])
   const [filteredSpecies, setFilteredSpecies] = useState<Species[]>([])
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState<Partial<Species>>({})
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Cargar especies del localStorage al montar el componente
+  // Usar el nuevo hook híbrido GitHub + localStorage
+  const { 
+    species, 
+    updateSpecies, 
+    loading, 
+    error, 
+    syncStatus,
+    hasUnsyncedChanges 
+  } = useGitHubData()
+
+  // Actualizar especies filtradas cuando cambien los datos
   useEffect(() => {
-    const loadSpecies = () => {
-      try {
-        const savedSpecies = localStorage.getItem('galapagos-species')
-        if (savedSpecies) {
-          const species = JSON.parse(savedSpecies)
-          setAllSpecies(species)
-          setFilteredSpecies(species)
-          onSearchResults(species)
-        }
-      } catch (error) {
-        console.error('Error loading species:', error)
-      }
+    if (species) {
+      setFilteredSpecies(species)
+      onSearchResults(species)
     }
-    
-    loadSpecies()
-  }, [])
+  }, [species, onSearchResults])
 
   const handleSearch = useCallback(() => {
-    let results = [...allSpecies]
+    if (!species) return
+    
+    let results = [...species]
   
     // Filtrar por término de búsqueda
     if (searchTerm.trim()) {
-      results = results.filter(species => 
-        species.commonName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        species.scientificName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        species.description.toLowerCase().includes(searchTerm.toLowerCase())
+      results = results.filter(speciesItem => 
+        speciesItem.commonName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        speciesItem.scientificName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        speciesItem.description.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
   
     // Filtrar por categoría
     if (selectedCategory && selectedCategory !== "all") {
-      results = results.filter(species => 
-        species.category.toLowerCase() === selectedCategory.toLowerCase()
+      results = results.filter(speciesItem => 
+        speciesItem.category.toLowerCase() === selectedCategory.toLowerCase()
       )
     }
   
     // Filtrar por estado de conservación
     if (selectedStatus && selectedStatus !== "all") {
-      results = results.filter(species => 
-        species.status.toLowerCase() === selectedStatus.toLowerCase()
+      results = results.filter(speciesItem => 
+        speciesItem.status.toLowerCase() === selectedStatus.toLowerCase()
       )
     }
   
     // Filtrar por ubicación
     if (selectedLocation) {
-      results = results.filter(species => 
-        species.location.toLowerCase().includes(selectedLocation.toLowerCase())
+      results = results.filter(speciesItem => 
+        speciesItem.location.toLowerCase().includes(selectedLocation.toLowerCase())
       )
     }
   
     setFilteredSpecies(results)
     onSearchResults(results)
-  }, [searchTerm, selectedCategory, selectedStatus, selectedLocation, allSpecies, onSearchResults])
+  }, [searchTerm, selectedCategory, selectedStatus, selectedLocation, species, onSearchResults])
 
   // Ejecutar búsqueda automáticamente cuando cambien los filtros
   useEffect(() => {
     handleSearch()
-  }, [searchTerm, selectedCategory, selectedStatus, selectedLocation, allSpecies])
+  }, [searchTerm, selectedCategory, selectedStatus, selectedLocation, species])
 
   const clearFilters = () => {
     setSearchTerm("")
     setSelectedCategory("all")
     setSelectedStatus("all")
     setSelectedLocation("")
-    setFilteredSpecies(allSpecies)
-    onSearchResults(allSpecies)
+    if (species) {
+      setFilteredSpecies(species)
+      onSearchResults(species)
+    }
   }
 
-  const handleViewSpecies = (species: Species) => {
-    setSelectedSpecies(species)
+  const handleViewSpecies = (speciesItem: Species) => {
+    setSelectedSpecies(speciesItem)
     setIsViewDialogOpen(true)
     if (onViewSpecies) {
-      onViewSpecies(species)
+      onViewSpecies(speciesItem)
     }
   }
 
-  const handleEditSpecies = (species: Species) => {
-    setSelectedSpecies(species)
+  const handleEditSpecies = (speciesItem: Species) => {
+    setSelectedSpecies(speciesItem)
+    setEditFormData(speciesItem)
     setIsEditDialogOpen(true)
     if (onEditSpecies) {
-      onEditSpecies(species)
+      onEditSpecies(speciesItem)
     }
+  }
+
+  const handleSaveChanges = async () => {
+    if (!selectedSpecies || !editFormData) return
+    
+    setIsSaving(true)
+    try {
+      const updatedSpecies = { ...selectedSpecies, ...editFormData }
+      await updateSpecies(updatedSpecies.id, updatedSpecies)
+      
+      toast({
+        title: "Especie actualizada",
+        description: `${updatedSpecies.commonName} ha sido actualizada exitosamente.`,
+      })
+      
+      setIsEditDialogOpen(false)
+      setSelectedSpecies(null)
+      setEditFormData({})
+    } catch (error) {
+      toast({
+        title: "Error al actualizar",
+        description: "No se pudo actualizar la especie. Inténtalo de nuevo.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const getSyncStatusIndicator = () => {
+    if (syncStatus === 'syncing') {
+      return <Cloud className="h-4 w-4 text-blue-500 animate-pulse" />
+    }
+    if (syncStatus === 'synced') {
+      return <Wifi className="h-4 w-4 text-green-500" />
+    }
+    return null
+  }
+
+  if (loading && !species?.length) {
+    return (
+      <div className="w-full bg-gray-50 rounded-xl p-6 border border-gray-200">
+        <div className="text-center py-8">
+          <Cloud className="h-12 w-12 mx-auto mb-4 text-blue-500 animate-pulse" />
+          <p className="text-lg font-medium text-gray-700">Cargando especies...</p>
+          <p className="text-sm text-gray-500">Sincronizando con GitHub</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <>
       <div className="w-full bg-gray-50 rounded-xl p-6 border border-gray-200">
-        {/* Header */}
+        {/* Header con estado de sincronización */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <Search className="h-6 w-6 text-blue-600" />
-            <h3 className="text-xl font-semibold text-gray-900">Buscar Especies Locales</h3>
+            <h3 className="text-xl font-semibold text-gray-900">Buscar Especies Híbridas</h3>
+            {getSyncStatusIndicator()}
+            {hasUnsyncedChanges && (
+              <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                Cambios pendientes
+              </Badge>
+            )}
           </div>
           <p className="text-gray-600">
-            Busca y edita las especies guardadas en tu catálogo local ({allSpecies.length} especies disponibles)
+            Sistema híbrido GitHub + localStorage ({species?.length || 0} especies disponibles)
+            {error && <span className="text-red-500 ml-2">• Error: {error}</span>}
           </p>
         </div>
 
@@ -208,7 +272,7 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
         {/* Resultados */}
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <div className="text-base font-medium text-gray-700 mb-4">
-            Mostrando {filteredSpecies.length} de {allSpecies.length} especies
+            Mostrando {filteredSpecies.length} de {species?.length || 0} especies
           </div>
           
           {/* Tabla de resultados */}
@@ -225,31 +289,31 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSpecies.map((species) => (
-                    <tr key={species.id} className="border-b hover:bg-gray-50">
+                  {filteredSpecies.map((speciesItem) => (
+                    <tr key={speciesItem.id} className="border-b hover:bg-gray-50">
                       <td className="p-3">
                         <div>
-                          <div className="font-medium">{species.commonName}</div>
-                          <div className="text-sm text-gray-500 italic">{species.scientificName}</div>
+                          <div className="font-medium">{speciesItem.commonName}</div>
+                          <div className="text-sm text-gray-500 italic">{speciesItem.scientificName}</div>
                         </div>
                       </td>
                       <td className="p-3">
-                        <Badge variant="outline">{species.category}</Badge>
+                        <Badge variant="outline">{speciesItem.category}</Badge>
                       </td>
                       <td className="p-3">
                         <Badge 
-                          variant={species.status === 'en-peligro' || species.status === 'critico' ? 'destructive' : 'secondary'}
+                          variant={speciesItem.status === 'en-peligro' || speciesItem.status === 'critico' ? 'destructive' : 'secondary'}
                         >
-                          {species.status}
+                          {speciesItem.status}
                         </Badge>
                       </td>
-                      <td className="p-3">{species.location}</td>
+                      <td className="p-3">{speciesItem.location}</td>
                       <td className="p-3">
                         <div className="flex gap-2">
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => handleViewSpecies(species)}
+                            onClick={() => handleViewSpecies(speciesItem)}
                           >
                             <Eye className="h-4 w-4 mr-1" />
                             Ver
@@ -257,7 +321,7 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => handleEditSpecies(species)}
+                            onClick={() => handleEditSpecies(speciesItem)}
                           >
                             <Edit className="h-4 w-4 mr-1" />
                             Editar
@@ -349,15 +413,24 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium">Nombre Común</label>
-                  <Input defaultValue={selectedSpecies.commonName} />
+                  <Input 
+                    value={editFormData.commonName || ''}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, commonName: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Nombre Científico</label>
-                  <Input defaultValue={selectedSpecies.scientificName} />
+                  <Input 
+                    value={editFormData.scientificName || ''}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, scientificName: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Categoría</label>
-                  <Select defaultValue={selectedSpecies.category}>
+                  <Select 
+                    value={editFormData.category || ''}
+                    onValueChange={(value) => setEditFormData(prev => ({ ...prev, category: value }))}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -373,7 +446,10 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
                 </div>
                 <div>
                   <label className="text-sm font-medium">Estado de Conservación</label>
-                  <Select defaultValue={selectedSpecies.status}>
+                  <Select 
+                    value={editFormData.status || ''}
+                    onValueChange={(value) => setEditFormData(prev => ({ ...prev, status: value }))}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -388,27 +464,60 @@ export function SpeciesSearch({ onSearchResults, onViewSpecies, onEditSpecies }:
                 </div>
                 <div className="col-span-2">
                   <label className="text-sm font-medium">Ubicación</label>
-                  <Input defaultValue={selectedSpecies.location} />
+                  <Input 
+                    value={editFormData.location || ''}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, location: e.target.value }))}
+                  />
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium">Descripción</label>
-                <textarea 
-                  className="w-full p-2 border rounded-md" 
+                <Textarea 
                   rows={3}
-                  defaultValue={selectedSpecies.description}
+                  value={editFormData.description || ''}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Hábitat</label>
+                <Textarea 
+                  rows={2}
+                  value={editFormData.habitat || ''}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, habitat: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Dieta</label>
+                <Textarea 
+                  rows={2}
+                  value={editFormData.diet || ''}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, diet: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Amenazas</label>
+                <Textarea 
+                  rows={2}
+                  value={editFormData.threats || ''}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, threats: e.target.value }))}
                 />
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={() => {
-                  // Aquí iría la lógica para guardar los cambios
-                  console.log('Guardando cambios...')
-                  setIsEditDialogOpen(false)
-                }}>
-                  Guardar Cambios
+                <Button onClick={handleSaveChanges} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Cloud className="h-4 w-4 mr-2 animate-pulse" />
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Guardar Cambios
+                    </>
+                  )}
                 </Button>
               </div>
             </div>

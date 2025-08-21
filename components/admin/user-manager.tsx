@@ -18,7 +18,8 @@ import {
   AlertDialogTrigger 
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { User, Trash2, Search, Mail, MapPin, Calendar, Users } from "lucide-react"
+import { User, Trash2, Search, Mail, MapPin, Calendar, Users, Wifi, WifiOff, Clock, CheckCircle, AlertCircle } from "lucide-react"
+import { useGitHubData } from "@/hooks/use-github-data"
 
 interface Investigator {
   id: string
@@ -35,15 +36,75 @@ interface Investigator {
   createdAt: string
 }
 
+interface UserCredentials {
+  [email: string]: {
+    password: string
+    salt?: string
+  }
+}
+
+interface PermissionRequest {
+  id: string
+  userId: string
+  requestType: string
+  status: string
+  createdAt: string
+  [key: string]: any
+}
+
+const getSyncStatusIcon = (status: string) => {
+  switch (status) {
+    case 'synced': return <CheckCircle className="h-4 w-4 text-green-600" />
+    case 'syncing': return <Clock className="h-4 w-4 text-blue-600 animate-spin" />
+    case 'offline': return <WifiOff className="h-4 w-4 text-gray-600" />
+    case 'error': return <AlertCircle className="h-4 w-4 text-red-600" />
+    default: return <Wifi className="h-4 w-4 text-gray-600" />
+  }
+}
+
+const getSyncStatusText = (status: string) => {
+  switch (status) {
+    case 'synced': return 'Sincronizado'
+    case 'syncing': return 'Sincronizando...'
+    case 'offline': return 'Sin conexión'
+    case 'error': return 'Error de sincronización'
+    default: return 'Desconocido'
+  }
+}
+
 export function UserManager() {
-  const [investigators, setInvestigators] = useState<Investigator[]>([])
   const [filteredInvestigators, setFilteredInvestigators] = useState<Investigator[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedUser, setSelectedUser] = useState<Investigator | null>(null)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadInvestigators()
-  }, [])
+  // Hooks para manejar datos con GitHub
+  const {
+    data: users,
+    deleteItem: deleteUser,
+    syncStatus: usersSyncStatus,
+    error: usersError,
+    pendingChanges: usersPendingChanges,
+    isLoading: usersLoading
+  } = useGitHubData<Investigator>('users')
+
+  const {
+    data: credentials,
+    deleteItem: deleteCredential,
+    syncStatus: credentialsSyncStatus,
+    error: credentialsError
+  } = useGitHubData<UserCredentials>('credentials')
+
+  const {
+    data: permissionRequests,
+    updateItem: updatePermissionRequest,
+    deleteItem: deletePermissionRequest,
+    syncStatus: permissionsSyncStatus,
+    error: permissionsError
+  } = useGitHubData<PermissionRequest>('permissions')
+
+  // Filtrar solo investigadores
+  const investigators = users.filter(user => user.role === 'researcher')
 
   useEffect(() => {
     // Filtrar investigadores por término de búsqueda
@@ -60,46 +121,32 @@ export function UserManager() {
     }
   }, [searchTerm, investigators])
 
-  const loadInvestigators = () => {
-    try {
-      const users = JSON.parse(localStorage.getItem('users') || '[]')
-      const researchers = users.filter((user: any) => user.role === 'researcher')
-      setInvestigators(researchers)
-      setFilteredInvestigators(researchers)
-    } catch (error) {
-      console.error('Error loading investigators:', error)
-      toast.error('Error al cargar los investigadores')
-    }
-  }
-
   const handleDeleteUser = async (user: Investigator) => {
-    try {
-      // Eliminar usuario de la lista de usuarios
-      const users = JSON.parse(localStorage.getItem('users') || '[]')
-      const updatedUsers = users.filter((u: any) => u.id !== user.id)
-      localStorage.setItem('users', JSON.stringify(updatedUsers))
+    if (isDeleting) return
 
-      // Eliminar credenciales del usuario
-      const credentials = JSON.parse(localStorage.getItem('credentials') || '{}')
-      delete credentials[user.email]
-      localStorage.setItem('credentials', JSON.stringify(credentials))
+    setIsDeleting(user.id)
+    try {
+      // Eliminar usuario
+      await deleteUser(user.id)
+
+      // Eliminar credenciales del usuario si existen
+      if (credentials[user.email]) {
+        await deleteCredential(user.email)
+      }
 
       // Eliminar solicitudes de permisos del usuario
-      const permissionRequests = JSON.parse(localStorage.getItem('permission-requests') || '[]')
-      const updatedRequests = permissionRequests.filter((req: any) => req.userId !== user.id)
-      localStorage.setItem('permission-requests', JSON.stringify(updatedRequests))
-
-      // Actualizar la lista local
-      loadInvestigators()
-      
-      // Emitir evento para actualizar otros componentes
-      window.dispatchEvent(new CustomEvent('usersUpdated'))
+      const userPermissionRequests = permissionRequests.filter(req => req.userId === user.id)
+      for (const request of userPermissionRequests) {
+        await deletePermissionRequest(request.id)
+      }
       
       toast.success(`Cuenta de ${user.name} eliminada exitosamente`)
       setSelectedUser(null)
     } catch (error) {
       console.error('Error deleting user:', error)
       toast.error('Error al eliminar la cuenta del usuario')
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -116,14 +163,53 @@ export function UserManager() {
     }
   }
 
+  // Determinar el estado de sincronización general
+  const overallSyncStatus = () => {
+    const statuses = [usersSyncStatus, credentialsSyncStatus, permissionsSyncStatus]
+    if (statuses.includes('error')) return 'error'
+    if (statuses.includes('syncing')) return 'syncing'
+    if (statuses.includes('offline')) return 'offline'
+    if (statuses.every(status => status === 'synced')) return 'synced'
+    return 'unknown'
+  }
+
+  const overallPendingChanges = usersPendingChanges + (permissionRequests.length > 0 ? 1 : 0)
+  const overallError = usersError || credentialsError || permissionsError
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold mb-2">Gestión de Investigadores</h2>
-        <p className="text-muted-foreground">
-          Administra las cuentas de los investigadores registrados en el sistema.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold mb-2">Gestión de Investigadores</h2>
+          <p className="text-muted-foreground">
+            Administra las cuentas de los investigadores registrados en el sistema.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {getSyncStatusIcon(overallSyncStatus())}
+          <span className="text-sm text-gray-600">
+            {getSyncStatusText(overallSyncStatus())}
+          </span>
+        </div>
       </div>
+
+      {/* Mostrar cambios pendientes */}
+      {overallPendingChanges > 0 && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-sm text-blue-800">
+            📝 {overallPendingChanges} cambio{overallPendingChanges !== 1 ? 's' : ''} pendiente{overallPendingChanges !== 1 ? 's' : ''} de sincronizar
+          </p>
+        </div>
+      )}
+      
+      {/* Mostrar errores de sincronización */}
+      {overallError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-sm text-red-800">
+            ⚠️ Error de sincronización: {overallError}
+          </p>
+        </div>
+      )}
 
       {/* Estadísticas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -133,7 +219,13 @@ export function UserManager() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{investigators.length}</div>
+            <div className="text-2xl font-bold">
+              {usersLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div>
+              ) : (
+                investigators.length
+              )}
+            </div>
           </CardContent>
         </Card>
         
@@ -144,7 +236,11 @@ export function UserManager() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {investigators.filter(inv => inv.status === 'active').length}
+              {usersLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div>
+              ) : (
+                investigators.filter(inv => inv.status === 'active').length
+              )}
             </div>
           </CardContent>
         </Card>
@@ -156,7 +252,11 @@ export function UserManager() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {investigators.filter(inv => inv.status === 'suspended').length}
+              {usersLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div>
+              ) : (
+                investigators.filter(inv => inv.status === 'suspended').length
+              )}
             </div>
           </CardContent>
         </Card>
@@ -179,6 +279,7 @@ export function UserManager() {
                 placeholder="Escribe para buscar..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                disabled={usersLoading}
               />
             </div>
             {searchTerm && (
@@ -186,6 +287,7 @@ export function UserManager() {
                 variant="outline" 
                 onClick={() => setSearchTerm("")}
                 className="mt-6"
+                disabled={usersLoading}
               >
                 Limpiar
               </Button>
@@ -202,7 +304,19 @@ export function UserManager() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredInvestigators.length === 0 ? (
+          {usersLoading ? (
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="border rounded-lg p-4 space-y-3">
+                  <div className="animate-pulse">
+                    <div className="h-6 bg-gray-200 rounded w-1/3 mb-2"></div>
+                    <div className="h-4 bg-gray-200 rounded w-1/2 mb-1"></div>
+                    <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredInvestigators.length === 0 ? (
             <div className="text-center py-8">
               <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">No se encontraron investigadores</h3>
@@ -263,9 +377,14 @@ export function UserManager() {
                             variant="destructive" 
                             size="sm"
                             onClick={() => setSelectedUser(investigator)}
+                            disabled={isDeleting === investigator.id}
                           >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            Eliminar
+                            {isDeleting === investigator.id ? (
+                              <Clock className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 mr-1" />
+                            )}
+                            {isDeleting === investigator.id ? 'Eliminando...' : 'Eliminar'}
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -276,12 +395,15 @@ export function UserManager() {
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogCancel disabled={isDeleting === investigator.id}>
+                              Cancelar
+                            </AlertDialogCancel>
                             <AlertDialogAction 
                               onClick={() => handleDeleteUser(investigator)}
                               className="bg-red-600 hover:bg-red-700"
+                              disabled={isDeleting === investigator.id}
                             >
-                              Eliminar Cuenta
+                              {isDeleting === investigator.id ? 'Eliminando...' : 'Eliminar Cuenta'}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
