@@ -1,0 +1,26 @@
+{
+  "permissionRequests": [],
+  "permissions": {
+    "admin": [
+      "view_all",
+      "edit_all",
+      "delete_all",
+      "manage_users",
+      "approve_researchers",
+      "export_data"
+    ],
+    "researcher": [
+      "view_species",
+      "request_data",
+      "view_public_info"
+    ],
+    "guest": [
+      "view_public_info"
+    ]
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15T10:00:00Z",
+    "totalRequests": 0
+  }
+}

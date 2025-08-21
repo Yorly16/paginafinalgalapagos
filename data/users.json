@@ -1,0 +1,19 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "email": "admin@galapagos.com",
+      "name": "Administrador Principal",
+      "role": "admin",
+      "password": "$2b$10$rOzJqQqQqQqQqQqQqQqQqO",
+      "createdAt": "2024-01-15T10:00:00Z",
+      "lastLogin": null,
+      "isActive": true
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15T10:00:00Z",
+    "totalUsers": 1
+  }
+}

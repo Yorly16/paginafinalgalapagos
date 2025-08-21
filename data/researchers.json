@@ -1,0 +1,24 @@
+{
+  "researchers": [
+    {
+      "id": "researcher-001",
+      "email": "dr.martinez@universidad.edu",
+      "name": "Dr. María Martínez",
+      "institution": "Universidad de Ciencias Naturales",
+      "specialization": "Biología Marina",
+      "role": "researcher",
+      "status": "approved",
+      "permissions": ["view_species", "request_data"],
+      "requestedAt": "2024-01-10T14:30:00Z",
+      "approvedAt": "2024-01-12T09:15:00Z",
+      "approvedBy": "admin-001",
+      "lastAccess": null
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15T10:00:00Z",
+    "totalResearchers": 1,
+    "pendingRequests": 0
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "species": [
+    {
+      "id": "species-001",
+      "scientificName": "Chelonoidis nigra",
+      "commonName": "Tortuga Gigante de Galápagos",
+      "family": "Testudinidae",
+      "status": "Vulnerable",
+      "habitat": "Tierras altas de las islas",
+      "description": "La tortuga gigante de Galápagos es una de las especies más emblemáticas del archipiélago.",
+      "imageUrl": "/galapagos-giant-tortoise-large-shell.png",
+      "discoveredBy": "Charles Darwin",
+      "discoveryYear": 1835,
+      "islands": ["Santa Cruz", "Isabela", "San Cristóbal"],
+      "addedBy": "admin-001",
+      "createdAt": "2024-01-15T10:00:00Z",
+      "updatedAt": "2024-01-15T10:00:00Z"
+    },
+    {
+      "id": "species-002",
+      "scientificName": "Amblyrhynchus cristatus",
+      "commonName": "Iguana Marina",
+      "family": "Iguanidae",
+      "status": "Vulnerable",
+      "habitat": "Costas rocosas y aguas marinas",
+      "description": "Única iguana del mundo que se alimenta en el mar, adaptada para nadar y bucear.",
+      "imageUrl": "/marine-iguana-swimming.png",
+      "discoveredBy": "Charles Darwin",
+      "discoveryYear": 1835,
+      "islands": ["Todas las islas principales"],
+      "addedBy": "admin-001",
+      "createdAt": "2024-01-15T10:00:00Z",
+      "updatedAt": "2024-01-15T10:00:00Z"
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15T10:00:00Z",
+    "totalSpecies": 2
+  }
+}
